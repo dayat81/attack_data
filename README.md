@@ -1,53 +1,143 @@
-![](environments/static/attack-data-logo.png)
+# Network Attack Data Pipeline
 
-A Repository of curated datasets from various attacks to:
+## Overview
 
-* Easily develop detections without having to build an environment from scratch or simulate an attack.
-* Test detections, specifically [Splunks Security Content](https://github.com/splunk/security-content)
-* [Replay](#replay-datasets-) into streaming pipelines for validating your detections in your production SIEM
+This repository implements a pipeline for streaming network attack data to Google Cloud for threat detection using Vertex AI. The pipeline includes:
 
-# Installation
-Notes:
-* These steps are inteded to be ran on your actual Splunk host/server (not remotely)
+- Data ingestion to Google Cloud Datastore
+- Real-time threat detection using Vertex AI
+- Comprehensive monitoring and alerting
+- Structured logging
+- Automated cleanup and lifecycle management
 
-GitHub LFS is used in this project. For Mac users git-lfs can be derived with homebrew (for another OS click [here](https://github.com/git-lfs/git-lfs/wiki/Installation)):
+## Requirements
 
-````
-brew install git-lfs
-````
+- Python 3.9+
+- Google Cloud SDK
+- Google Cloud project with enabled APIs:
+  - Datastore API
+  - Vertex AI API
+  - Cloud Logging API
+  - Pub/Sub API
 
-Then you need to install it. I would recommend using the --skip-smudge parameter, which will avoid that all Git LFS files are downloaded during git clone. You can install it with the following command:
+## Installation
 
-````
-git lfs install --skip-smudge
-````
+1. Install Python dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-Download the repository with this command:
+2. Configure Google Cloud credentials:
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="path/to/your/service-account.json"
+export PROJECT_ID="your-project-id"
+```
 
-````
-git clone https://github.com/splunk/attack_data
-````
+3. Enable required APIs:
+```bash
+./deploy.sh enable-apis
+```
 
-Fetch all or select attack data sets
+## Pipeline Components
 
-````
-# This pulls all data - Warning >9Gb of data
-git lfs pull
+### 1. Data Ingestion
+- `data_pipeline.py`: Core pipeline implementation
+- `datastore_instance_checker.py`: Verifies Datastore instance status
+- `logging_utils.py`: Provides structured logging
 
-# This pulls one data set directory
-git lfs pull --include=datasets/attack_techniques/T1003.001/atomic_red_team/
+### 2. Threat Detection
+- `vertex_ai_utils.py`: Vertex AI integration
+- Handles real-time predictions
+- Supports batch processing
 
-# Or pull just one log like this
-git lfs pull --include=datasets/attack_techniques/T1003.001/atomic_red_team/windows-sysmon.log
+### 3. Monitoring & Alerting
+- Cloud Monitoring dashboard
+- Cloud Alerting policies
+- Cloud Logging integration
 
-````
+## Configuration
 
+### Vertex AI Configuration
+```json
+{
+    "project_id": "your-project-id",
+    "region": "us-central1",
+    "model_id": "your-model-id"
+}
+```
 
-# Anatomy of a Dataset 🧬
-### Datasets
-Datasets are defined by a common YML structure. The structure has the following fields:
+### Environment Variables
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="path/to/your/service-account.json"
+export PROJECT_ID="your-project-id"
+```
 
-|field| description|
+## Usage
+
+### Verify Datastore Instance
+```bash
+python datastore_instance_checker.py \
+    --project_id your-project-id \
+    --instance_id your-instance-id
+```
+
+### Process Data
+```bash
+python data_pipeline.py \
+    --project_id your-project-id \
+    --datastore_kind AttackData \
+    --datastore_namespace attack_data \
+    --vertex_config vertex_config.json \
+    --input_file path/to/your/data.json
+```
+
+### Run Tests
+```bash
+python test_pipeline.py
+```
+
+## Monitoring
+
+### Cloud Dashboard
+- Data ingestion rate
+- Vertex AI prediction latency
+- Error rates
+- Datastore operations
+- Pipeline health
+
+### Alerting
+- Low data ingestion rate
+- High prediction latency
+- High error rate
+
+## Documentation
+
+- [Configuration Guide](docs/configuration.md)
+- [Implementation Details](docs/pipeline_implementation.md)
+- [Troubleshooting Guide](docs/troubleshooting.md)
+
+## Security
+
+- IAM permissions are configured automatically
+- Data is encrypted at rest and in transit
+- Automated cleanup policies are in place
+- Security Command Center integration
+
+## License
+
+MIT License - see LICENSE file for details
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a new Pull Request
+
+## Support
+
+For support, please open an issue in the repository.
 |---|---|
 | id | UUID of dataset |
 |name  | name of author  |

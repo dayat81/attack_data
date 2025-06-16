@@ -1,0 +1,45 @@
+display_name: "Attack Detection Pipeline Alert Policy"
+documentation:
+  content: >
+    This alert policy monitors the health of the attack detection pipeline.
+    It will notify when:
+    - Data ingestion rate drops below 100 operations per minute
+    - Vertex AI prediction latency exceeds 1 second
+    - Error rate exceeds 5% of total operations
+  mime_type: "text/markdown"
+conditions:
+  - display_name: "Low Data Ingestion Rate"
+    condition_threshold:
+      filter: >
+        metric.type="datastore.googleapis.com/datastore/write_operations_count"
+        resource.type="datastore"
+      comparison: COMPARISON_LT
+      threshold_value: 100
+      duration: 60s
+      aggregations:
+        - alignment_period: 60s
+          per_series_aligner: ALIGN_RATE
+  - display_name: "High Prediction Latency"
+    condition_threshold:
+      filter: >
+        metric.type="aiplatform.googleapis.com/prediction/latency"
+        resource.type="ml_model"
+      comparison: COMPARISON_GT
+      threshold_value: 1000
+      duration: 60s
+      aggregations:
+        - alignment_period: 60s
+          per_series_aligner: ALIGN_MEAN
+  - display_name: "High Error Rate"
+    condition_threshold:
+      filter: >
+        metric.type="logging.googleapis.com/user/error_count"
+        resource.type="cloud_function"
+      comparison: COMPARISON_GT
+      threshold_value: 5
+      duration: 60s
+      aggregations:
+        - alignment_period: 60s
+          per_series_aligner: ALIGN_RATE
+notification_channels:
+  - notification_channel: projects/$PROJECT_ID/notificationChannels/$NOTIFICATION_CHANNEL_ID
