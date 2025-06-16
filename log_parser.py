@@ -74,7 +74,8 @@ def parse_log_file(log_path):
     elif 'powershell' in filename:
         features.update(parse_powershell(content))
     
-    # Add the target label
+    # Add the source path and target label
+    features['log_path'] = log_path
     features['target'] = get_target_label(log_path)
     
     return features
