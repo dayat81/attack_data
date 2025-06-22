@@ -67,6 +67,8 @@ class PipelineLogger:
                 self.local_logger.warning(json.dumps(log_entry))
             elif level == 'ERROR':
                 self.local_logger.error(json.dumps(log_entry))
+            elif level == 'CRITICAL':
+                self.local_logger.critical(json.dumps(log_entry))
             
             # Log to Cloud if configured
             if self.cloud_logger:
@@ -118,3 +120,7 @@ class PipelineLogger:
             kwargs: Additional structured data to include in the log
         """
         self.log('INFO', message, **kwargs)
+
+    def critical(self, message, **kwargs):
+        """Log a critical error."""
+        self.log('CRITICAL', message, **kwargs)
