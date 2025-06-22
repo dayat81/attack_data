@@ -30,16 +30,22 @@ class DataPipeline:
         self.vertex_config = vertex_config or {}
         
         # Initialize logger with structured logging
+        # PipelineLogger currently only accepts ``project_id`` and ``log_name``
+        # parameters.  The previous implementation attempted to pass arguments
+        # such as ``name`` and ``level`` which are not supported and resulted in
+        # ``TypeError`` during initialization.  Provide supported parameters and
+        # log the contextual fields manually.
         self.logger = PipelineLogger(
-            name='attack_data_pipeline',
-            level=logging.INFO,
-            log_file='pipeline.log',
-            extra_fields={
-                'project_id': project_id,
-                'datastore_kind': datastore_kind,
-                'datastore_namespace': datastore_namespace
-            }
+            project_id=project_id,
+            log_name='attack_data_pipeline'
         )
+
+        # Store default fields used in every log entry
+        self._log_context = {
+            'project_id': project_id,
+            'datastore_kind': datastore_kind,
+            'datastore_namespace': datastore_namespace,
+        }
         
         # Initialize Datastore client with error handling
         try:
@@ -50,13 +56,15 @@ class DataPipeline:
             self.logger.info(
                 "Initialized Datastore client",
                 project_id=project_id,
-                namespace=datastore_namespace or 'default'
+                namespace=datastore_namespace or 'default',
+                **self._log_context
             )
         except Exception as e:
             self.logger.critical(
                 "Failed to initialize Datastore client",
                 error=str(e),
-                exc_info=True
+                exc_info=True,
+                **self._log_context
             )
             raise
         
@@ -73,17 +81,19 @@ class DataPipeline:
                 self.logger.info(
                     "Initialized Vertex AI processor",
                     model_id=vertex_config['model_id'],
-                    endpoint_id=vertex_config.get('endpoint_id')
+                    endpoint_id=vertex_config.get('endpoint_id'),
+                    **self._log_context
                 )
             except Exception as e:
                 self.logger.error(
                     "Failed to initialize Vertex AI processor",
                     error=str(e),
                     config={
-                        k: v for k, v in vertex_config.items() 
+                        k: v for k, v in vertex_config.items()
                         if k not in ['service_account_key']  # Don't log sensitive info
                     },
-                    exc_info=True
+                    exc_info=True,
+                    **self._log_context
                 )
                 # Don't raise here to allow pipeline to work without Vertex AI
                 # if it's not critical for the use case
@@ -115,7 +125,10 @@ class DataPipeline:
             timestamp = raw_data.get('timestamp')
             if not timestamp:
                 timestamp = datetime.utcnow().isoformat()
-                self.logger.debug("Using current time for missing timestamp")
+                self.logger.debug(
+                    "Using current time for missing timestamp",
+                    **self._log_context
+                )
             
             # Prepare Datastore entity with proper typing
             datastore_data = {
@@ -149,11 +162,10 @@ class DataPipeline:
             
             self.logger.debug(
                 "Data transformation completed",
-                extra={
-                    'input_keys': list(raw_data.keys()),
-                    'output_datastore_keys': list(datastore_data.keys()),
-                    'output_vertex_keys': list(vertex_data.keys())
-                }
+                input_keys=list(raw_data.keys()),
+                output_datastore_keys=list(datastore_data.keys()),
+                output_vertex_keys=list(vertex_data.keys()),
+                **self._log_context
             )
             
             return datastore_data, vertex_data
@@ -161,12 +173,11 @@ class DataPipeline:
         except (ValueError, TypeError, KeyError) as e:
             self.logger.error(
                 "Data transformation failed",
-                extra={
-                    'error': str(e),
-                    'input_type': type(raw_data).__name__,
-                    'input_keys': list(raw_data.keys()) if isinstance(raw_data, dict) else []
-                },
-                exc_info=True
+                error=str(e),
+                input_type=type(raw_data).__name__,
+                input_keys=list(raw_data.keys()) if isinstance(raw_data, dict) else [],
+                exc_info=True,
+                **self._log_context
             )
             raise ValueError(f"Data transformation error: {str(e)}") from e
 
@@ -191,7 +202,8 @@ class DataPipeline:
             
             self.logger.info(
                 "Successfully ingested data to Datastore",
-                entity_key=str(key)
+                entity_key=str(key),
+                **self._log_context
             )
             
             return entity.key
@@ -200,7 +212,8 @@ class DataPipeline:
             self.logger.error(
                 "Error ingesting data to Datastore",
                 error=str(e),
-                data=data
+                data=data,
+                **self._log_context
             )
             raise
 
@@ -220,7 +233,8 @@ class DataPipeline:
         if not self.vertex_processor:
             self.logger.warning(
                 "Vertex AI processor not initialized - skipping prediction",
-                extra={'data_keys': list(data.keys())}
+                data_keys=list(data.keys()),
+                **self._log_context
             )
             return None
         
@@ -235,11 +249,10 @@ class DataPipeline:
             
             self.logger.info(
                 "Successfully processed with Vertex AI",
-                extra={
-                    'model': self.vertex_processor.model_id,
-                    'endpoint': self.vertex_processor.endpoint_id,
-                    'prediction_keys': list(result.get('prediction', {}).keys()) if isinstance(result.get('prediction'), dict) else []
-                }
+                model=self.vertex_processor.model_id,
+                endpoint=self.vertex_processor.endpoint_id,
+                prediction_keys=list(result.get('prediction', {}).keys()) if isinstance(result.get('prediction'), dict) else [],
+                **self._log_context
             )
             
             return result
@@ -247,12 +260,11 @@ class DataPipeline:
         except VertexAIError as e:
             self.logger.error(
                 "Vertex AI processing failed",
-                extra={
-                    'error': str(e),
-                    'model': self.vertex_processor.model_id,
-                    'endpoint': self.vertex_processor.endpoint_id
-                },
-                exc_info=True
+                error=str(e),
+                model=self.vertex_processor.model_id,
+                endpoint=self.vertex_processor.endpoint_id,
+                exc_info=True,
+                **self._log_context
             )
             # Re-raise to allow caller to handle the error
             raise
@@ -261,12 +273,11 @@ class DataPipeline:
             # Catch any unexpected errors
             self.logger.critical(
                 "Unexpected error in Vertex AI processing",
-                extra={
-                    'error': str(e),
-                    'error_type': type(e).__name__,
-                    'model': self.vertex_processor.model_id
-                },
-                exc_info=True
+                error=str(e),
+                error_type=type(e).__name__,
+                model=self.vertex_processor.model_id,
+                exc_info=True,
+                **self._log_context
             )
             raise VertexAIError(f"Unexpected error in Vertex AI processing: {str(e)}") from e
 
@@ -284,7 +295,10 @@ class DataPipeline:
             RuntimeError: If there's a critical error in the batch processing
         """
         if not raw_data_list:
-            self.logger.warning("Received empty batch, nothing to process")
+            self.logger.warning(
+                "Received empty batch, nothing to process",
+                **self._log_context
+            )
             return []
         
         batch_results = []
@@ -294,10 +308,9 @@ class DataPipeline:
         # Log batch start
         self.logger.info(
             "Starting batch processing",
-            extra={
-                'batch_size': len(raw_data_list),
-                'vertex_ai_enabled': self.vertex_processor is not None
-            }
+            batch_size=len(raw_data_list),
+            vertex_ai_enabled=self.vertex_processor is not None,
+            **self._log_context
         )
         
         for i, raw_data in enumerate(raw_data_list, 1):
@@ -329,10 +342,9 @@ class DataPipeline:
                         # Log but don't fail the entire batch for Vertex AI errors
                         self.logger.warning(
                             "Skipping Vertex AI processing due to error",
-                            extra={
-                                'error': str(e),
-                                'datastore_key': datastore_key
-                            }
+                            error=str(e),
+                            datastore_key=datastore_key,
+                            **self._log_context
                         )
                 
                 # Mark as successful
@@ -343,11 +355,10 @@ class DataPipeline:
                 if i % 10 == 0 or i == len(raw_data_list):
                     self.logger.debug(
                         "Batch progress",
-                        extra={
-                            'processed': i,
-                            'total': len(raw_data_list),
-                            'success_rate': f"{(i - error_count) / i * 100:.1f}%"
-                        }
+                        processed=i,
+                        total=len(raw_data_list),
+                        success_rate=f"{(i - error_count) / i * 100:.1f}%",
+                        **self._log_context
                     )
                 
             except Exception as e:
@@ -357,14 +368,13 @@ class DataPipeline:
                 
                 self.logger.error(
                     "Error processing data item",
-                    extra={
-                        'error': error_msg,
-                        'error_type': type(e).__name__,
-                        'item_index': i - 1,
-                        'success_count': success_count,
-                        'error_count': error_count
-                    },
-                    exc_info=isinstance(e, (ValueError, TypeError))
+                    error=error_msg,
+                    error_type=type(e).__name__,
+                    item_index=i - 1,
+                    success_count=success_count,
+                    error_count=error_count,
+                    exc_info=isinstance(e, (ValueError, TypeError)),
+                    **self._log_context
                 )
             
             batch_results.append(item_result)
@@ -372,12 +382,11 @@ class DataPipeline:
         # Log batch completion
         self.logger.info(
             "Batch processing completed",
-            extra={
-                'batch_size': len(raw_data_list),
-                'successful': success_count,
-                'failed': error_count,
-                'success_rate': f"{success_count / len(raw_data_list) * 100:.1f}%" if raw_data_list else 'N/A'
-            }
+            batch_size=len(raw_data_list),
+            successful=success_count,
+            failed=error_count,
+            success_rate=f"{success_count / len(raw_data_list) * 100:.1f}%" if raw_data_list else 'N/A',
+            **self._log_context
         )
         
         return batch_results
@@ -390,18 +399,21 @@ class DataPipeline:
                 self.datastore_client.put(entity)
                 self.logger.info(
                     "Updated Datastore entity with prediction",
-                    entity_key=str(key)
+                    entity_key=str(key),
+                    **self._log_context
                 )
             else:
                 self.logger.warning(
                     "Datastore entity not found for prediction update",
-                    entity_key=str(key)
+                    entity_key=str(key),
+                    **self._log_context
                 )
         except Exception as e:
             self.logger.error(
                 "Failed to update Datastore entity with prediction",
                 error=str(e),
-                entity_key=str(key)
+                entity_key=str(key),
+                **self._log_context
             )
 
 if __name__ == "__main__":
