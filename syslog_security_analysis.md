@@ -91,144 +91,90 @@ This report analyzes security events collected via syslog from host 10.213.10.5 
 
 ### Detection Rules for Splunk
 
+**Copy these one-liner queries directly into Splunk Web GUI:**
+
+#### Rule 1: Detect EternalBlue exploitation attempts
 ```spl
-# Rule 1: Detect EternalBlue exploitation attempts
-index=main sourcetype=syslog "CVE-2017-0144" OR "ETERNALBLUE"
-| stats count by src_ip, dst_ip
-| where count > 1
+index=main sourcetype=syslog ("CVE-2017-0144" OR "ETERNALBLUE") | rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<src_ip>[^\"]+)\"" | rex field=_raw "\"dst\":\s*{\s*\"ip\":\s*\"(?<dst_ip>[^\"]+)\"" | stats count by src_ip, dst_ip | where count > 1
+```
 
-# Rule 2: Detect DGA domain communications
-index=main sourcetype=syslog 
-| rex field=_raw "\"cat\":\s*\"dga\""
-| rex field=_raw "\"dst\".*?\"dns\":\s*\"(?<dga_domain>[^\"]+)\""
-| stats count by dga_domain, src_ip
+#### Rule 2: Detect DGA domain communications
+```spl
+index=main sourcetype=syslog "dga" | rex field=_raw "\"dst\".*?\"dns\":\s*\"(?<dga_domain>[^\"]+)\"" | stats count by dga_domain | head 20
+```
 
-# Rule 3: Detect multiple IP checker queries (reconnaissance)
-index=main sourcetype=syslog 
-| rex field=_raw "\"cat\":\s*\"ip_checkers\""
-| rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<src_ip>[^\"]+)\""
-| stats dc(dst_dns) as unique_checkers by src_ip
-| where unique_checkers > 2
+#### Rule 3: Detect multiple IP checker queries (reconnaissance)
+```spl
+index=main sourcetype=syslog "ip_checkers" | rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<src_ip>[^\"]+)\"" | rex field=_raw "\"dst\".*?\"dns\":\s*\"(?<dst_dns>[^\"]+)\"" | stats dc(dst_dns) as unique_checkers by src_ip | where unique_checkers > 2
+```
 
-# Rule 4: Alert on known attack patterns
-index=main sourcetype=syslog 
-| search "ATTACK" OR "SUSPICIOUS" OR "alert"
-| table _time, src_ip, alert_msg, attack_technique
+#### Rule 4: Alert on known attack patterns
+```spl
+index=main sourcetype=syslog ("ATTACK" OR "SUSPICIOUS" OR "alert") | rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<src_ip>[^\"]+)\"" | rex field=_raw "\"s_msg\":\s*\"(?<alert_msg>[^\"]+)\"" | rex field=_raw "\"att_ck\":\s*\[\"(?<attack_technique>[^\"]+)\"\]" | table _time, src_ip, alert_msg, attack_technique
 ```
 
 ### Example Splunk Queries to Investigate Threats
 
+**Copy these one-liner queries directly into Splunk Web GUI:**
+
 #### 1. View All EternalBlue/WannaCry Attack Attempts
 ```spl
-sourcetype=syslog "ETERNALBLUE" OR "WannaCry" OR "CVE-2017-0144" OR "Unimplemented Trans2"
-| table _time, src.ip, dst.ip, s_msg, att_ck
-| sort -_time
+sourcetype=syslog ("ETERNALBLUE" OR "WannaCry" OR "CVE-2017-0144" OR "Unimplemented Trans2") | rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<src_ip>[^\"]+)\"" | rex field=_raw "\"dst\":\s*{\s*\"ip\":\s*\"(?<dst_ip>[^\"]+)\"" | rex field=_raw "\"s_msg\":\s*\"(?<s_msg>[^\"]+)\"" | rex field=_raw "\"att_ck\":\s*\[\"(?<att_ck>[^\"]+)\"\]" | table _time, src_ip, dst_ip, s_msg, att_ck | sort -_time
 ```
 
 #### 2. Track Primary Threat Actor Activity Timeline
 ```spl
-sourcetype=syslog "103.145.125.10"
-| rex field=_raw "\"type\":\s*\"(?<event_type>[^\"]+)\""
-| rex field=_raw "\"s_msg\":\s*\"(?<alert_msg>[^\"]+)\""
-| table _time, event_type, alert_msg, dst.dns, dst.port
-| sort _time
+sourcetype=syslog "103.145.125.10" | rex field=_raw "\"type\":\s*\"(?<event_type>[^\"]+)\"" | rex field=_raw "\"s_msg\":\s*\"(?<alert_msg>[^\"]+)\"" | rex field=_raw "\"dst\".*?\"dns\":\s*\"(?<dst_dns>[^\"]+)\"" | rex field=_raw "\"dst\".*?\"port\":\s*(?<dst_port>\d+)" | table _time, event_type, alert_msg, dst_dns, dst_port | sort _time
 ```
 
 #### 3. Investigate Zyxel Device Exploitation
 ```spl
-sourcetype=syslog "CVE-2023-28771" OR "Zyxel ZyWALL"
-| rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<attacker_ip>[^\"]+)\""
-| rex field=_raw "\"dst\":\s*{\s*\"ip\":\s*\"(?<target_ip>[^\"]+)\""
-| table _time, attacker_ip, target_ip, s_msg, payload
-| sort -_time
+sourcetype=syslog ("CVE-2023-28771" OR "Zyxel ZyWALL") | rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<attacker_ip>[^\"]+)\"" | rex field=_raw "\"dst\":\s*{\s*\"ip\":\s*\"(?<target_ip>[^\"]+)\"" | rex field=_raw "\"s_msg\":\s*\"(?<s_msg>[^\"]+)\"" | rex field=_raw "\"payload\":\s*\"(?<payload>[^\"]+)\"" | table _time, attacker_ip, target_ip, s_msg, payload | sort -_time
 ```
 
 #### 4. Analyze DGA Domain Communications
 ```spl
-sourcetype=syslog "sophosxl.net"
-| rex field=_raw "\"dst\":\s*{[^}]*\"dns\":\s*\"(?<c2_domain>[^\"]+sophosxl[^\"]+)\""
-| stats count by c2_domain, src.ip
-| eval threat_level=case(count>10, "HIGH", count>5, "MEDIUM", 1=1, "LOW")
-| sort -count
+sourcetype=syslog "sophosxl.net" | rex field=_raw "\"dst\":\s*{[^}]*\"dns\":\s*\"(?<c2_domain>[^\"]+sophosxl[^\"]+)\"" | rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<src_ip>[^\"]+)\"" | stats count by c2_domain, src_ip | eval threat_level=case(count>10, "HIGH", count>5, "MEDIUM", 1=1, "LOW") | sort -count
 ```
 
 #### 5. Monitor Anonymous SMB Attack Patterns
 ```spl
-sourcetype=syslog "Anonymous SMB" OR "IPC share"
-| rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<attacker>[^\"]+)\""
-| rex field=_raw "\"dst\":\s*{\s*\"ip\":\s*\"(?<victim>[^\"]+)\""
-| timechart span=1h count by attacker
+sourcetype=syslog ("Anonymous SMB" OR "IPC share") | rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<attacker>[^\"]+)\"" | rex field=_raw "\"dst\":\s*{\s*\"ip\":\s*\"(?<victim>[^\"]+)\"" | timechart span=1h count by attacker
 ```
 
 #### 6. Real-time Threat Dashboard Query
 ```spl
-sourcetype=syslog earliest=-24h
-| rex field=_raw "\"s_pr\":\s*(?<severity>\d+)"
-| rex field=_raw "\"cat\":\s*\"(?<category>[^\"]+)\""
-| search severity>=3 OR category="dga" OR "ATTACK" OR "SUSPICIOUS"
-| stats count by category, severity
-| eval risk_score=severity*count
-| sort -risk_score
+sourcetype=syslog earliest=-24h | rex field=_raw "\"s_pr\":\s*(?<severity>\d+)" | rex field=_raw "\"cat\":\s*\"(?<category>[^\"]+)\"" | search (severity>=3 OR category="dga" OR "ATTACK" OR "SUSPICIOUS") | stats count by category, severity | eval risk_score=severity*count | sort -risk_score
 ```
 
 #### 7. IP Reputation Check Activity
 ```spl
-sourcetype=syslog ("api.ipify.org" OR "ip-api.com" OR "api.bigdatacloud.net")
-| rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<source_ip>[^\"]+)\""
-| stats dc(dst.dns) as unique_services, values(dst.dns) as services, count as queries by source_ip
-| where unique_services > 2
-| sort -queries
+sourcetype=syslog ("api.ipify.org" OR "ip-api.com" OR "api.bigdatacloud.net") | rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<source_ip>[^\"]+)\"" | rex field=_raw "\"dst\".*?\"dns\":\s*\"(?<dst_dns>[^\"]+)\"" | stats dc(dst_dns) as unique_services, values(dst_dns) as services, count as queries by source_ip | where unique_services > 2 | sort -queries
 ```
 
 #### 8. Cobalt Strike Indicators
 ```spl
-sourcetype=syslog ("cobalt_strike" OR "beacon" OR "ESC-auto-cobalt")
-| rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<c2_server>[^\"]+)\""
-| rex field=_raw "\"dst\":\s*{\s*\"ip\":\s*\"(?<compromised_host>[^\"]+)\""
-| table _time, c2_server, compromised_host, cat, rpt
+sourcetype=syslog ("cobalt_strike" OR "beacon" OR "ESC-auto-cobalt") | rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<c2_server>[^\"]+)\"" | rex field=_raw "\"dst\":\s*{\s*\"ip\":\s*\"(?<compromised_host>[^\"]+)\"" | rex field=_raw "\"cat\":\s*\"(?<cat>[^\"]+)\"" | table _time, c2_server, compromised_host, cat
 ```
 
 #### 9. SSH Brute Force Detection
 ```spl
-sourcetype=syslog "Paramiko" OR "SSH python"
-| rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<ssh_attacker>[^\"]+)\""
-| rex field=_raw "\"dst\":\s*{\s*\"port\":\s*(?<ssh_port>\d+)"
-| stats count by ssh_attacker, dst.ip, ssh_port
-| where ssh_port=22
+sourcetype=syslog ("Paramiko" OR "SSH python") | rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<ssh_attacker>[^\"]+)\"" | rex field=_raw "\"dst\":\s*{\s*\"ip\":\s*\"(?<dst_ip>[^\"]+)\"" | rex field=_raw "\"dst\".*?\"port\":\s*(?<ssh_port>\d+)" | stats count by ssh_attacker, dst_ip, ssh_port | where ssh_port=22
 ```
 
 #### 10. Combined Threat Intelligence View
 ```spl
-sourcetype=syslog earliest=-24h
-| rex field=_raw "\"att_ck\":\s*\[\"(?<mitre_technique>[^\"]+)\"\]"
-| rex field=_raw "\"s_cls\":\s*\"(?<attack_class>[^\"]+)\""
-| rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<src_ip>[^\"]+)\""
-| stats dc(mitre_technique) as techniques_used, 
-        values(mitre_technique) as mitre_techniques,
-        values(attack_class) as attack_types,
-        count as total_events by src_ip
-| eval threat_score=techniques_used*10 + if(total_events>100, 50, total_events/2)
-| sort -threat_score
-| head 20
+sourcetype=syslog earliest=-24h | rex field=_raw "\"att_ck\":\s*\[\"(?<mitre_technique>[^\"]+)\"\]" | rex field=_raw "\"s_cls\":\s*\"(?<attack_class>[^\"]+)\"" | rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<src_ip>[^\"]+)\"" | stats dc(mitre_technique) as techniques_used, values(mitre_technique) as mitre_techniques, values(attack_class) as attack_types, count as total_events by src_ip | eval threat_score=techniques_used*10 + if(total_events>100, 50, total_events/2) | sort -threat_score | head 20
 ```
 
 #### 11. Payload Analysis for Exploitation Attempts
 ```spl
-sourcetype=syslog payload=*
-| rex field=_raw "\"payload\":\s*\"(?<encoded_payload>[^\"]+)\""
-| eval decoded_payload=urldecode(encoded_payload)
-| rex field=_raw "\"s_msg\":\s*\"(?<alert_description>[^\"]+)\""
-| table _time, src.ip, dst.ip, alert_description, decoded_payload
-| sort -_time
+sourcetype=syslog payload=* | rex field=_raw "\"payload\":\s*\"(?<encoded_payload>[^\"]+)\"" | eval decoded_payload=urldecode(encoded_payload) | rex field=_raw "\"s_msg\":\s*\"(?<alert_description>[^\"]+)\"" | rex field=_raw "\"src\":\s*{\s*\"ip\":\s*\"(?<src_ip>[^\"]+)\"" | rex field=_raw "\"dst\":\s*{\s*\"ip\":\s*\"(?<dst_ip>[^\"]+)\"" | table _time, src_ip, dst_ip, alert_description, decoded_payload | sort -_time
 ```
 
 #### 12. Geographic Threat Distribution
 ```spl
-sourcetype=syslog 
-| rex field=_raw "\"src\":[^}]+\"country\":\s*\"(?<src_country>[^\"]+)\""
-| rex field=_raw "\"cat\":\s*\"(?<threat_category>[^\"]+)\""
-| stats count by src_country, threat_category
-| sort -count
+sourcetype=syslog | rex field=_raw "\"src\":[^}]+\"country\":\s*\"(?<src_country>[^\"]+)\"" | rex field=_raw "\"cat\":\s*\"(?<threat_category>[^\"]+)\"" | stats count by src_country, threat_category | sort -count
 ```
 
 ### Long-term Security Improvements
